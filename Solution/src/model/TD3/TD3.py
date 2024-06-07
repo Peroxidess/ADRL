@@ -85,7 +85,24 @@ class TD3:
             action = action + noise
         self.actor.train()
 
-        return action.squeeze().detach().cpu().numpy()
+        self.classifier.eval()
+        state_grad = T.tensor([observation], dtype=T.float).to(device)
+        state_grad = T.reshape(state_grad, shape=(-1, observation.shape[1]))
+
+        actions_tensor_grad = self.target_actor.forward(state_grad)
+        observation[:, -1] = actions_tensor_grad.detach().numpy().reshape(-1, )
+        state_grad_ = T.tensor(observation, dtype=T.float, requires_grad=True).to(device)
+        state_grad_.retain_grad()
+        y_grad = self.classifier.forward(state_grad_)[0]
+        y_grad[:, 0].backward(T.ones((rewards_tensor.shape[0],)).to(device), retain_graph=True)
+        state_grad = copy.deepcopy(state_grad_.grad)
+        y_grad[:, 1].backward(T.ones((rewards_tensor.shape[0],)).to(device), retain_graph=True)
+        act_bias = state_grad.detach().numpy()[:, -1]
+        if 'RRC' in self.name_RL:
+            action_emseble = action.squeeze().detach().cpu().numpy() - 1e-1 * act_bias
+        else:
+            action_emseble = action.squeeze().detach().cpu().numpy()
+        return action_emseble
 
     def learn_class(self, X, Y, val_x, val_y, episodes_C=200):
         np.random.seed(self.seed)
